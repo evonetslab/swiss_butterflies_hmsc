@@ -1,0 +1,103 @@
+---
+title: "Not sure yet"
+author: "Elena Quintero"
+format: html
+---
+
+Load data:
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+load("hmsc/output/cooccurrence_matrix_non_spat.RData")
+
+ints <- read_csv(here::here("interaction/data/Swiss_metaweb_gen_relaxed.csv"))
+
+taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE)
+butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
+plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
+
+```
+
+## Correlation JSDM residuals and species interactions
+
+```{r}
+residuals_mat <- OmegaCor[[1]]$mean
+
+# keep only upper triangle of the matrix
+residuals_mat[lower.tri(residuals_mat, diag = TRUE)] <- NA
+
+residuals_long <- residuals_mat |>
+    as.data.frame() |>
+    rownames_to_column("bf_taxa") |>
+    pivot_longer(cols = -bf_taxa, names_to = "pl_taxa", values_to = "residuals") |> 
+    filter(!is.na(residuals)) |> 
+    filter(bf_taxa %in% butterflies & pl_taxa %in% plants)
+
+# checking dimenstion
+nrow(residuals_long)
+163*165 #plant taxa times animal taxa
+
+ints_long <- ints |> 
+    rename(pl_taxa = ...1) |>
+    pivot_longer(cols = -pl_taxa, names_to = "bf_taxa", values_to = "interaction") |> 
+    #Change to "Polygonia_c.album" "Satyrium_w.album" 
+    mutate(bf_taxa = str_replace(bf_taxa, "-", "."))
+nrow(ints_long) # more interactions than in residuals df, because some species are not in the model
+# setdiff(unique(ints_long$bf_taxa), unique(residuals_long$bf_taxa))
+
+df <- residuals_long |> 
+    left_join(ints_long, by = c("bf_taxa", "pl_taxa")) 
+ ```
+
+
+```{r}
+support_mat <- OmegaCor[[1]]$support
+
+# keep only upper triangle of the matrix
+support_mat[lower.tri(support_mat, diag = TRUE)] <- NA
+
+support_long <- support_mat |>
+    as.data.frame() |>
+    rownames_to_column("bf_taxa") |>
+    pivot_longer(cols = -bf_taxa, names_to = "pl_taxa", values_to = "support") |> 
+    filter(!is.na(support)) |> 
+    filter(bf_taxa %in% butterflies & pl_taxa %in% plants)
+
+df <- df |> 
+    left_join(support_long, by = c("bf_taxa", "pl_taxa"))
+```
+
+
+```{r}
+df |> group_by(interaction) |> 
+    summarise(n = n(),
+              mean_residuals = mean(residuals), 
+              sd_residuals = sd(residuals),
+              mean_support = mean(support),
+              sd_support = sd(support)) |> 
+    arrange(desc(mean_residuals))
+
+ggplot(df, aes(x = residuals, y = as.factor(interaction), 
+               color = as.factor(interaction), fill = as.factor(interaction))) +
+    ggdist::stat_halfeye(alpha = 0.5) +
+    theme_minimal()
+# NA of interactions come from the genus Vulpia which is not reported in Clarke.
+
+ggplot(df, aes(x = residuals, y = 1, fill = as.factor(interaction), color = as.factor(interaction))) +
+    ggdist::stat_halfeye(alpha  = 0.2) +
+    theme_minimal() + theme(legend.position = "none") 
+
+hist(df$interaction)
+hist(df$residuals)
+hist(df$support)
+
+ggplot(df, aes(x = support, y = residuals, fill = as.factor(interaction), color = as.factor(interaction))) +
+    geom_point(alpha = 0.2) +
+    facet_wrap(~interaction) +
+    theme_minimal() + theme(legend.position = "none")
+
+```
