@@ -1,0 +1,103 @@
+---
+title: "Simple model for predicting interactions using SVD"
+format: html
+---
+
+```{r}
+#| message: false
+#| warning: false
+library(here)
+library(tidyverse)
+```
+
+```{r}
+obs.mat <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv")) |>
+    rename(plant = ...1) |>
+    pivot_longer(cols = -plant, names_to = "butterfly", values_to = "interaction")
+
+taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE)
+butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
+plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
+
+obs.mat.hmsc <- obs.mat |> 
+  filter(plant %in% plants & butterfly %in% butterflies) |> 
+  pivot_wider(names_from = butterfly, values_from = interaction) |>
+  column_to_rownames("plant")
+```
+
+```{r}
+dim(obs.mat.hmsc) #rows and cols
+
+svd <- svd(obs.mat.hmsc)
+#what does sv contain?
+u <- svd$u # left singular vectors (plants)
+v <- svd$v # right singular vectors (butterflies)
+d <- svd$d # singular values
+
+eigenvalues <- svd$d^2 #variance = singular value²
+proportion_variance_explained <- eigenvalues / sum(eigenvalues)
+
+sum(proportion_variance_explained[1:16]) #60% of variance explained by first 16 singular values
+```
+
+```{r}
+k = 16
+svd16 <- svd(obs.mat.hmsc, nu = k, nv = k)
+
+plants.latent <- svd16$u %*% diag(sqrt(svd16$d[1:k])) # Plant Latent Positions (n x k)
+leps.latent <- svd16$v %*% diag(sqrt(svd16$d[1:k])) # Butterflies Latent Positions (m x k)
+
+#retrieve the probability matrix
+P_hat <- plants.latent %*% t(leps.latent)
+#assign row and column names to the reconstructed matrix
+rownames(P_hat) <- rownames(obs.mat.hmsc)
+colnames(P_hat) <- colnames(obs.mat.hmsc)
+```
+
+
+```{r}
+df.Phat <- P_hat |> as.data.frame() |> 
+  rownames_to_column("pl_taxa") |>
+  pivot_longer(-pl_taxa, names_to = "bf_taxa", values_to = "Predicted")
+
+df <- obs.mat.hmsc |> as.data.frame() |> 
+  rownames_to_column("pl_taxa") |>
+  pivot_longer(-pl_taxa, names_to = "bf_taxa", values_to = "Original") |> 
+  full_join(df.Phat, by = c("pl_taxa", "bf_taxa"))
+```
+
+Calculate Youden's J statistic to evaluate cutoff for presence/absence in the reconstructed matrix
+
+```{r}
+library(cutpointr)
+
+cutpoint <- cutpointr(df, 
+    x = Predicted, class = Original, 
+    method = maximize_metric, 
+    metric = youden)
+cutpoint$optimal_cutpoint
+
+df$Predicted_co <- ifelse(df$Predicted >= cutpoint$optimal_cutpoint, 1, 0)
+```
+
+Check model performance with confusion matrix
+
+```{r}
+library(caret)
+# Calculate main performance metrics
+confusionMatrix(factor(df$Predicted_co), factor(df$Original),
+                positive = "1")
+
+# Calculate Precision-Recall AUC
+library(PRROC)
+pr <- pr.curve(scores.class0 = df$Predicted[df$Original == 1],
+               scores.class1 = df$Predicted[df$Original == 0],
+               curve = TRUE)
+pr
+plot(pr)
+```
+
+
+```{r}
+write_csv(df, here::here("interaction/svd_prediction.csv"))
+```
