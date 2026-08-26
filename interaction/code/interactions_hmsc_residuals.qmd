@@ -1,25 +1,30 @@
 ---
 title: "Not sure yet"
 author: "Elena Quintero"
-format: html
+# format: gfm
+format: html  
+self-contained: true
 ---
 
-Load data:
+Load data
 
 ```{r}
+#| message: false
+#| warning: false
+library(here)
 library(tidyverse)
 library(ggplot2)
+library(ggdist)
 ```
 
 ```{r}
-load("hmsc/output/cooccurrence_matrix_non_spat.RData")
+load(here::here("hmsc/output/cooccurrence_matrix_non_spat.RData"))
 
 ints <- read_csv(here::here("interaction/data/Swiss_metaweb_gen_relaxed.csv"))
 
 taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE)
 butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
 plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
-
 ```
 
 ## Correlation JSDM residuals and species interactions
@@ -51,7 +56,7 @@ nrow(ints_long) # more interactions than in residuals df, because some species a
 
 df <- residuals_long |> 
     left_join(ints_long, by = c("bf_taxa", "pl_taxa")) 
- ```
+```
 
 
 ```{r}
