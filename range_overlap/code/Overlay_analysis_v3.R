@@ -2,29 +2,29 @@
 ## Read in fitted model
 ## Overlay butterflies with their interacting plant genera
 ##Jussi Makinen 7-11-2024
-## small add-on Elena Quintero 14-08-2026
+## Elena Quintero 7-9-2026 - path changes and matrix rows/cols refer for species
 
 Overlay_analysis = function(papilio_test, model) {
   
   if (papilio_test) {
     output_dir = '/scratch/project_2011416/Output/Papilio'
   } else {
-    output_dir = '/scratch/project_2011416/Output/All_species'
+    output_dir = '/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output'
   }
   
   #read in mean predicted probability
   if (model == 'spat') {
-    pred_current_realized = read.csv(paste0(output_dir, '/pred_all_mean_current_', model, '.csv'))
+    pred_current_realized = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output/pred_all_mean_current_non_spat_no_hpc.csv')
   }
-  pred_current = read.csv(paste0(output_dir, '/pred_all_mean_current_', model, '.csv'))
-  pred_future_26 = read.csv(paste0(output_dir, '/pred_all_mean_future_26_', model, '.csv'))
-  pred_future_85 = read.csv(paste0(output_dir, '/pred_all_mean_future_85_', model, '.csv'))
+  pred_current = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output/pred_all_mean_current_non_spat_no_hpc.csv')
+  pred_future_26 = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output/pred_all_mean_future_26_non_spat_no_hpc.csv')
+  pred_future_85 = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output/pred_all_mean_future_85_non_spat_no_hpc.csv')
   
   #read in interaction matrix
   if (papilio_test) {
     species_matrix = read.csv('/scratch/project_2011416/Data/papilio/interaction_matrix_papilio.csv')
   } else {
-    species_matrix = read.csv('/scratch/project_2011416/Data/interaction_matrix.csv')
+    species_matrix = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/interaction/data/Swiss_web_gen_strict.csv')
   }
   
   #compute overlap between butterflies and their host plants
@@ -70,8 +70,8 @@ Overlay_analysis = function(papilio_test, model) {
   range_hosts = {}
   overlap_host = {}
   overlap_all = {}
-  plant_names = colnames(species_matrix)
-  butterfly_names = species_matrix$X
+  plant_names = species_matrix$X
+  butterfly_names = colnames(species_matrix)
   butterfly_names = butterfly_names[butterfly_names %in% colnames(pred_current)]
   
   for (i in 1:length(butterfly_names)) {
@@ -162,3 +162,5 @@ Overlay_analysis = function(papilio_test, model) {
   write.csv(range_future_df, file = paste0(output_dir, '/range_overlap_future_85_', model, '.csv'), quote = F)
   
 }
+
+# Overlay_analysis(papilio_test = F, model = "non_spat")

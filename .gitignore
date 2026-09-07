@@ -50,3 +50,6 @@ rsconnect/
 
 # Mac Finder
 *.DS_Store
+
+# Heavy files
+hmsc/output/pred_*
