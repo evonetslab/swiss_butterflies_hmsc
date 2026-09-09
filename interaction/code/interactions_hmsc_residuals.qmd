@@ -1,5 +1,5 @@
 ---
-title: "Not sure yet"
+title: "Correlating residuals with interaction information"
 author: "Elena Quintero"
 # format: gfm
 format: html  
@@ -18,9 +18,11 @@ library(ggdist)
 ```
 
 ```{r}
+#| message: false
 load(here::here("hmsc/output/cooccurrence_matrix_non_spat.RData"))
 
-ints <- read_csv(here::here("interaction/data/Swiss_metaweb_gen_relaxed.csv"))
+ints <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv"))
+metaweb <- read_csv(here::here("interaction/data/Swiss_metaweb_gen_relaxed.csv"))
 
 taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE)
 butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
@@ -45,7 +47,10 @@ residuals_long <- residuals_mat |>
 # checking dimenstion
 nrow(residuals_long)
 163*165 #plant taxa times animal taxa
+```
 
+Load interaction data and metaweb data, and join with residuals.
+```{r}
 ints_long <- ints |> 
     rename(pl_taxa = ...1) |>
     pivot_longer(cols = -pl_taxa, names_to = "bf_taxa", values_to = "interaction") |> 
@@ -54,11 +59,24 @@ ints_long <- ints |>
 nrow(ints_long) # more interactions than in residuals df, because some species are not in the model
 # setdiff(unique(ints_long$bf_taxa), unique(residuals_long$bf_taxa))
 
+metaweb_long <- metaweb |> 
+    rename(pl_taxa = ...1) |>
+    pivot_longer(cols = -pl_taxa, names_to = "bf_taxa", values_to = "int_potential") |> 
+    #Change to "Polygonia_c.album" "Satyrium_w.album" 
+    mutate(bf_taxa = str_replace(bf_taxa, "-", "."))
+nrow(metaweb_long)
+
 df <- residuals_long |> 
-    left_join(ints_long, by = c("bf_taxa", "pl_taxa")) 
+    left_join(ints_long, by = c("bf_taxa", "pl_taxa")) |> 
+    left_join(metaweb_long, by = c("bf_taxa", "pl_taxa")) |> 
+    mutate(int_evidence = case_when(
+        interaction == 1 ~ "recorded",
+        int_potential == 1 ~ "potential",
+        TRUE ~ "absence"
+    ))
 ```
 
-
+Load support matrix and join with the df:
 ```{r}
 support_mat <- OmegaCor[[1]]$support
 
@@ -76,6 +94,7 @@ df <- df |>
     left_join(support_long, by = c("bf_taxa", "pl_taxa"))
 ```
 
+Overview:
 
 ```{r}
 df |> group_by(interaction) |> 
@@ -85,24 +104,75 @@ df |> group_by(interaction) |>
               mean_support = mean(support),
               sd_support = sd(support)) |> 
     arrange(desc(mean_residuals))
+# NA of interaction come from the genus Vulpia which is not reported in Clarke (neither in the potential df). Although Vulpia is supposed to be a synonim of Festuca which is indeed recorded in Clarke
+```
 
-ggplot(df, aes(x = residuals, y = as.factor(interaction), 
-               color = as.factor(interaction), fill = as.factor(interaction))) +
-    ggdist::stat_halfeye(alpha = 0.5) +
-    theme_minimal()
-# NA of interactions come from the genus Vulpia which is not reported in Clarke.
-
-ggplot(df, aes(x = residuals, y = 1, fill = as.factor(interaction), color = as.factor(interaction))) +
-    ggdist::stat_halfeye(alpha  = 0.2) +
+Distribution plot of residuals for observed interactions:
+```{r}
+ggplot(df|> filter(!is.na(interaction)), 
+        aes(x = residuals, y = 1, 
+            fill = as.factor(interaction), 
+            color = as.factor(interaction))) +
+    ggdist::stat_halfeye(alpha  = 0.5) +
     theme_minimal() + theme(legend.position = "none") 
+```
 
-hist(df$interaction)
-hist(df$residuals)
-hist(df$support)
+Distribution plot of residuals for observed AND POTENTIAL interactions:
+```{r}
+ggplot(df |> filter(!is.na(int_potential)), 
+        aes(x = residuals, y = 1, 
+            fill = as.factor(int_potential), 
+            color = as.factor(int_potential))) +
+    ggdist::stat_halfeye(alpha  = 0.5) +
+    theme_minimal() + theme(legend.position = "none") 
+```
 
-ggplot(df, aes(x = support, y = residuals, fill = as.factor(interaction), color = as.factor(interaction))) +
+Distribution plot of residuals SEPARATING observed and potential interactions:
+```{r}
+ggplot(df |> filter(!is.na(int_potential)), 
+        aes(x = residuals, y = 1, 
+            fill = int_evidence, 
+            color = int_evidence)) +
+    ggdist::stat_halfeye(alpha  = 0.5) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+```
+
+Plot relation of residuals with support for the different level of interaction evidence:
+```{r}
+# hist(df$interaction)
+# hist(df$int_potential)
+# hist(df$residuals)
+# hist(df$support)
+
+ggplot(df|> filter(!is.na(int_potential)), 
+           aes(x = support, y = residuals, 
+               fill = as.factor(int_evidence), 
+               color = as.factor(int_evidence))) +
     geom_point(alpha = 0.2) +
-    facet_wrap(~interaction) +
+    facet_wrap(~int_evidence) +
     theme_minimal() + theme(legend.position = "none")
+```
 
+## Model for testing interaction effect on residuals
+```{r}
+#| message: false
+#| warning: false
+library(glmmTMB)
+
+hist(df$residuals)
+
+m1 <- glmmTMB(residuals ~ int_evidence + (1 | bf_taxa), family = gaussian, data = df)
+summary(m1)
+# performance::check_model(m1)
+DHARMa::simulateResiduals(m1, plot = TRUE)
+visreg::visreg(m1, "int_evidence", scale = "response", gg = TRUE) + theme_minimal()
+emmeans::emmeans(m1, pairwise ~ int_evidence)
+```
+
+```{r}
+m2 <- glmmTMB(residuals ~ int_evidence + (1 | bf_taxa) + (1 | pl_taxa), family = gaussian, data = df)
+m3 <- glmmTMB(residuals ~ int_evidence, family = gaussian, data = df)
+summary(m2)
+DHARMa::simulateResiduals(m2, plot = TRUE)
 ```
