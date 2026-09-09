@@ -24,7 +24,8 @@ Overlay_analysis = function(papilio_test, model) {
   if (papilio_test) {
     species_matrix = read.csv('/scratch/project_2011416/Data/papilio/interaction_matrix_papilio.csv')
   } else {
-    species_matrix = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/interaction/data/Swiss_web_gen_strict.csv')
+    species_matrix = read.csv('/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/interaction/data/Swiss_web_gen_strict.csv') |> 
+      column_to_rownames("X") |> t() |> as.data.frame() |> rownames_to_column("X")
   }
   
   #compute overlap between butterflies and their host plants
@@ -70,12 +71,15 @@ Overlay_analysis = function(papilio_test, model) {
   range_hosts = {}
   overlap_host = {}
   overlap_all = {}
-  plant_names = species_matrix$X
-  butterfly_names = colnames(species_matrix)
+  plant_names = colnames(species_matrix)
+  butterfly_names = species_matrix$X
   butterfly_names = butterfly_names[butterfly_names %in% colnames(pred_current)]
   
   for (i in 1:length(butterfly_names)) {
-    host_names = plant_names[species_matrix[i,]==1]
+    # host_names = plant_names[species_matrix[i,]==1]
+    # changing the way of getting host_names for the butterflies because now the order and no. of species in the 
+    #  interaction matrix is not the same as in the pred_current data frame
+    host_names = plant_names[species_matrix |> filter(X == butterfly_names[i])==1] 
     pred_current_host = as.matrix(pred_current[,colnames(pred_current) %in% host_names])
     pred_current_all = as.matrix(pred_current[,colnames(pred_current) %in% plant_names])
     if (ncol(pred_current_host) >= 2) {
@@ -107,7 +111,8 @@ Overlay_analysis = function(papilio_test, model) {
   overlap_all = {}
   
   for (i in 1:length(butterfly_names)) {
-    host_names = plant_names[species_matrix[i,]==1]
+    # host_names = plant_names[species_matrix[i,]==1]
+    host_names = plant_names[species_matrix |> filter(X == butterfly_names[i])==1] 
     pred_future_host = as.matrix(pred_future_26[,colnames(pred_future_26) %in% host_names])
     pred_future_all = as.matrix(pred_future_26[,colnames(pred_future_26) %in% plant_names])
     if (ncol(pred_future_host) >= 2) {
@@ -138,7 +143,8 @@ Overlay_analysis = function(papilio_test, model) {
   overlap_all = {}
   
   for (i in 1:length(butterfly_names)) {
-    host_names = plant_names[species_matrix[i,]==1]
+    # host_names = plant_names[species_matrix[i,]==1]
+    host_names = plant_names[species_matrix |> filter(X == butterfly_names[i])==1] 
     pred_future_host = as.matrix(pred_future_85[,colnames(pred_future_85) %in% host_names])
     pred_future_all = as.matrix(pred_future_85[,colnames(pred_future_85) %in% plant_names])
     if (ncol(pred_future_host) >= 2) {
@@ -163,4 +169,4 @@ Overlay_analysis = function(papilio_test, model) {
   
 }
 
-# Overlay_analysis(papilio_test = F, model = "non_spat")
+Overlay_analysis(papilio_test = F, model = "non_spat")

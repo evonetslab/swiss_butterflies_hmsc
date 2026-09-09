@@ -1,0 +1,156 @@
+---
+title: "Compare and overview of the estimated overlap between butterflies and hosts using results from hmsc"
+# format: gfm
+format: html  
+self-contained: true
+---
+
+Libraries:
+```{r}
+#| message: false
+#| warning: false
+library(here)
+library(tidyverse)
+library(ggplot2)
+```
+
+Read calculated overlaps
+```{r}
+#| message: false
+# Elena's recalculation using Clarke data
+ovelap_current <- read_csv(here("hmsc/output/butterfly_range_overlap_current_non_spat.csv"))
+
+# Jussi's using previous interaction data
+overlap_current_Jussi <- read_csv('/Users/elqu2194/Library/CloudStorage/OneDrive-Sverigeslantbruksuniversitet/Archivos de Mariana Pires Braga - EvonetsLab/Projects/SwissLeps/HMSC/nonspatial/range_overlap_current_non_spat.csv')
+```
+
+Compare species with info
+
+```{r}
+nrow(ovelap_current) # 152 species
+nrow(overlap_current_Jussi) # 163 species (so 11 more species in Jussi's data)
+
+setdiff(ovelap_current$Species, overlap_current_Jussi$Species) # Jussi's misses the "Satyrium_w.album"  "Polygonia_c.album" (prob. because of the dot in the name)
+setdiff(overlap_current_Jussi$Species, ovelap_current$Species) # Elena's misses 13 other species (for with Clarke must not have good evidence information or no info at all)
+```
+
+Correlate butterfly range overlap values between the two datasets
+
+```{r}
+#| message: false
+#| warning: false
+# considering only common species (so, 150 species)
+combined_overlap <- ovelap_current |> 
+  inner_join(overlap_current_Jussi, by = c("Species" = "Species"))
+
+# Species range (this shouldn't have changes, but it did, dont know why!!)
+ggplot(combined_overlap, aes(x = Range.x, y = Range.y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(x = "Species range (Elena's data)", y = "Species range (Jussi's data)") +
+  ggtitle("Comparison of Butterfly Ranges") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_log10()
+
+# Host range
+ggplot(combined_overlap, aes(x = Range_hosts.x, y = Range_hosts.y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(x = "Host range (Elena's data)", y = "Host range (Jussi's data)") +
+  ggtitle("Comparison of Butterfly's Host Ranges") +
+  theme_minimal()
+
+# Overlap with host plants
+ggplot(combined_overlap, aes(x = Overlap_hosts.x, y = Overlap_hosts.y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(x = "Overlap Current (Elena's data)", y = "Overlap Current (Jussi's data)") +
+  ggtitle("Comparison of Butterfly Range Overlap Values") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+```{r}
+#| include: false
+# checking that indeed the ranges of butterflies are the same as their overlap with any plant (meaning there is allways plants in the butterfly ranges (although not necessarily the interacting ones)
+ggplot(combined_overlap, aes(x = Range.y, y = Overlap_any_plant.y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  theme_minimal() 
+
+ggplot(combined_overlap, aes(x = Range.x, y = Overlap_any_plant.x)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  theme_minimal() 
+```
+
+Thinking on reasons why some overlap values are zero in the new overlap data (Elena's):
+Were there plant genera in Clarke interaction dataset which had not range data in the hmsc?
+
+```{r}
+pred_current = read.csv(here('hmsc/output/pred_all_mean_current_non_spat_no_hpc.csv'))
+int_matrix = read.csv(here('interaction/data/Swiss_web_gen_strict.csv'))
+
+# colnames(pred_current)[-c(1:165)] #plant genera in hmsc data
+sort(setdiff(colnames(pred_current)[-c(1:165)], int_matrix$X)) # plants with hmsc data but no interaction info
+sort(setdiff(int_matrix$X, colnames(pred_current)[-c(1:165)])) # plants with interaction info but no hmsc data (n = 45!!)
+
+# check if some of these plants are synonims
+library(rWCVP)
+plants_hmsc <- sort(setdiff(colnames(pred_current)[-c(1:165)], int_matrix$X)) |> as.data.frame() |> rename(plant_taxa = 1)
+plant_matches <- wcvp_match_names(plants_hmsc,
+                                  name_col = "plant_taxa",
+                                  fuzzy = TRUE)
+
+plant_matches |> filter(wcvp_status == "Synonym") 
+# Glyceria synonim of Hydrocotyle
+# Glycine synonim of Pueraria
+# Syringa synonim of Philadelphus
+# Vulpia synonim of Festuca
+# none of these are in the interaction dataset, so they are not the reason for the zero overlap values
+```
+
+Check for example Lycaena_helle which is only supposed to interact with Bistorta, why overlap is 0?
+```{r}
+# a <- pred_current |> 
+#   select(Bistorta, Lycaena_helle) |> 
+#   mutate(overlap = Bistorta * Lycaena_helle,
+#          overlap.r = round(overlap, 5)) 
+# sum(a$overlap.r)
+# sum(a$overlap)
+# because Bistorta is only in the matrix, no info on its range (no hmsc data), so the overlap is 0
+```
+
+Scolitantides_orion is only supposed to interact with Hylotelephium, but same, Hylotelephium is only in the matrix, no info on its range, so the overlap is 0.
+
+These (Lycaena_helle and Scolitantides_orion) are the only 2 butterfly species with 0 overlap with hosts in their range.
+
+
+Now check why the butterfly ranges do not coincide...
+```{r}
+# pred_current2 = read.csv(here('/Users/elqu2194/Library/CloudStorage/OneDrive-Sverigeslantbruksuniversitet/Archivos de Mariana Pires Braga - EvonetsLab/Projects/SwissLeps/HMSC/nonspatial/HMSC_predicted_ranges/pred_all_mean_current_non_spat_no_hpc.csv'))
+#  it is not the file path (same in local folder than in OneDrive folder)
+
+a <- pred_current |> 
+  select(Parnassius_mnemosyne) 
+
+sum(a)
+
+combined_overlap |> 
+  filter(Species == "Parnassius_mnemosyne") |> 
+  select(Range.x, Range.y)
+
+
+a <- pred_current |> 
+  select(Ochlodes_sylvanus) 
+
+sum(a)
+
+combined_overlap |> 
+  filter(Species == "Ochlodes_sylvanus") |> 
+  select(Range.x, Range.y)
+
+
+```
