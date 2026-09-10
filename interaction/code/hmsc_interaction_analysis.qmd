@@ -1,0 +1,226 @@
+---
+title: "Checking changes in butterfly ranges and overlap with hosts for Switzerland"
+# format: gfm
+format: 
+    html:
+        code-fold: true
+self-contained: true
+execute: 
+  warning: false
+  message: false
+---
+
+Load packages
+```{r}
+library(here)
+library(tidyverse)
+library(tidylog)
+library(ggplot2)
+set_theme(theme_minimal())
+```
+
+Read calculated overlaps (current and future scenarios) - updated using new interaction information.
+```{r}
+overlap_current <- read_csv(here("hmsc/output/butterfly_range_overlap_current_non_spat.csv")) |> 
+    mutate(scenario = "current")
+overlap_fut26 <- read_csv(here("hmsc/output/butterfly_range_overlap_future_26_non_spat.csv")) |> 
+    mutate(scenario = "future26")
+overlap_fut85 <- read_csv(here("hmsc/output/butterfly_range_overlap_future_85_non_spat.csv"))|> 
+    mutate(scenario = "future85")
+```
+
+Combine overlap data
+```{r}
+overlaps <- full_join(overlap_current, overlap_fut26) |> 
+    full_join(overlap_fut85) |> 
+    # calculate % of range occupied by a host
+    mutate(per_range_w_host = Overlap_hosts/Range)
+```
+
+Average percentage of butterfly range in which they overlap with host plants for each scenario:
+```{r}
+overlaps |> group_by(scenario) |> 
+    summarise(mean_per_range_w_host = mean(per_range_w_host),
+              sd_per_range_w_host = sd(per_range_w_host))
+
+# overlaps |> select(scenario, per_range_w_host) |> group_by(scenario) |> summarytools::dfSummary()
+```
+
+So it seems that the average overlap with host increases in the future!
+
+
+### Extract butterfly information (degree, family, tribe)
+
+First extract butterflies degree (no. of hosts reported in Switzerland) and taxa info.
+
+```{r}
+bf_info <- read_csv('/Users/elqu2194/Documents/SLU_EvoNets/CaterLinkPredict/data/Swiss_interactions.csv') |> 
+    filter_out(int_evidence == 4) |> 
+    mutate(bf_taxa = ifelse(bf_taxa == "Polygonia c-album", "Polygonia c.album", bf_taxa),
+           bf_taxa = ifelse(bf_taxa == "Satyrium w-album", "Satyrium w.album", bf_taxa),
+           bf_taxa = str_replace(bf_taxa, " ", "_")) |> 
+    filter(bf_taxa %in% unique(overlaps$Species)) |> 
+    distinct(bf_family, bf_tribe, bf_taxa, pl_genus) |> 
+    group_by(bf_family, bf_tribe, bf_taxa) |> 
+    summarise(degree_net = n())
+
+# So this degree is from the original networks, but has some plants for which we have no distribution data, so the degree is "overestimated" regarding the hmsc. We need to recalculate it using only the plants for which we have distribution data (i.e., those in the hmsc model)
+
+plant_taxa_hmsc <- read_csv(here("interaction/taxa_list_hmsc.csv"), col_names = F) |> 
+    pull(X3)
+
+bf_info_hmsc <- read_csv('/Users/elqu2194/Documents/SLU_EvoNets/CaterLinkPredict/data/Swiss_interactions.csv') |> 
+    filter_out(int_evidence == 4) |> 
+    mutate(bf_taxa = ifelse(bf_taxa == "Polygonia c-album", "Polygonia c.album", bf_taxa),
+           bf_taxa = ifelse(bf_taxa == "Satyrium w-album", "Satyrium w.album", bf_taxa),
+           bf_taxa = str_replace(bf_taxa, " ", "_")) |> 
+    filter(bf_taxa %in% unique(overlaps$Species)) |> 
+    filter(pl_genus %in% plant_taxa_hmsc) |> 
+    distinct(bf_family, bf_tribe, bf_taxa, pl_genus) |> 
+    group_by(bf_family, bf_tribe, bf_taxa) |> 
+    summarise(degree_hmsc = n())
+
+bf_info <- full_join(bf_info, bf_info_hmsc) |> 
+    mutate(degree_hmsc = ifelse(is.na(degree_hmsc), 0, degree_hmsc))
+```
+
+Compare the butterfly degree (no. of host plants) between the Clarke network and the HMSC model (after filtering out plants for which we have no distribution data):
+
+```{r}
+# Species which changed the degree (hosts that were lost for these species)
+bf_info |> mutate(degree_decrease = degree_hmsc-degree_net) |> 
+    filter(degree_hmsc != degree_net) |> ungroup() |> 
+    select(bf_taxa, degree_net, degree_hmsc, degree_decrease) |> 
+    arrange(degree_decrease)
+
+ggplot(bf_info, aes(x = degree_net, y = degree_hmsc)) +
+    geom_point(size = 2) +
+    geom_abline(slope = 1, intercept = 0, color = "red") +
+    labs(x = "Degree (Clarke Swiss network)", y = "Degree (after filter HMSC plant genus)")
+```
+
+There has been a considerable loss in the number of host plants for some butterfly species (19 out of 152), although degree is still correlated between the two datasets. Species with a more marked loss of information are: *Lycaena_helle* and *Scolitantides_orion* which lost their unique host plant (no info for their host plant genus distributed in the hmsc model, *Bistorta* and *Hylotelephium* respectively). And *Papilio_machaon*, *Vanessa_cardui*, *Pieris_mannii*, which lost 7 to 4 host plant species. Would it be crazy to rerun the hmsc including these new plant genera (aprox. 45 new genera reported in Clarke with no info on hmsc range)? No idea how much time and effort it takes...
+
+Combine overlaps with butterfly info:
+
+```{r}
+overlaps <- full_join(overlaps, bf_info, by = c("Species" = "bf_taxa"))
+```
+
+## Check butterfly ranges
+
+```{r}
+ggplot(overlaps |> filter(scenario == "current"), 
+                aes(x = fct_reorder(Species, Range),
+                     y = Range, fill = degree_hmsc)) +
+    geom_bar(stat = "identity") +
+    labs(y = "Range size (sum of cell probs)", x = "Butterfly species") +
+    paletteer::scale_fill_paletteer_c("ggthemes::Red-Gold") +
+    theme(legend.position = "bottom", axis.text.x = element_blank())
+```
+
+## Correlate % of host overlap (relative to the butterfly's range)
+
+Plot % of butterfly range occupied by host plants for each butterfly species, colored by degree:
+
+(using as degree the no. of host with info in the HMSC model)
+
+```{r}
+ggplot(overlaps |> filter(scenario == "current"), 
+                aes(x = fct_reorder(Species, per_range_w_host),
+                     y = per_range_w_host,
+                     fill = degree_hmsc)) +
+    geom_bar(stat = "identity") +
+    paletteer::scale_fill_paletteer_c("ggthemes::Red-Gold") +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) + 
+    labs(x = "Butterfly species", y = "% of range occupied by host plants")
+```
+
+Using network degree instead (derived from Clarke):
+```{r}
+ggplot(overlaps |> filter(scenario == "current"), 
+                aes(x = fct_reorder(Species, per_range_w_host),
+                     y = per_range_w_host,
+                     fill = degree_net)) +
+    geom_bar(stat = "identity") +
+    paletteer::scale_fill_paletteer_c("ggthemes::Red-Gold") +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) + 
+    labs(x = "Butterfly species", y = "% of range occupied by host plants")
+```
+
+For the 3 scenarios:
+
+```{r}
+#| fig.height: 9
+ggplot(overlaps |> 
+           mutate(Species = tidytext::reorder_within(Species, per_range_w_host, scenario)),
+       aes(x = Species, y = per_range_w_host, fill = degree_hmsc)) +
+    geom_bar(stat = "identity") +
+    paletteer::scale_fill_paletteer_c("ggthemes::Red-Gold") +
+    facet_wrap(~scenario, ncol = 1, scales = "free") +
+    # tidytext::scale_x_reordered() +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) +
+    labs(x = "Butterfly species", y = "% of range occupied by host plants")
+```
+
+Similar patterns in all scenarios.
+
+Colouring by butterfly family to see if there are differences between families:
+```{r}
+ggplot(overlaps |> filter(scenario == "current"), 
+                aes(x = fct_reorder(Species, per_range_w_host),
+                     y = per_range_w_host,
+                     fill = bf_family)) +
+    geom_bar(stat = "identity") +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) + 
+    paletteer::scale_fill_paletteer_d("ggthemes::Classic_Green_Orange_12") +
+    labs(x = "Butterfly species", y = "% of range occupied by host plants", fill = NULL)
+```
+
+Not specially...
+
+## Calculate changes in overlap with host plants between current and future scenarios
+```{r}
+overlaps_change <- overlaps |>
+    select(bf_family, degree_net, degree_hmsc, Species, scenario, per_range_w_host) |>
+    pivot_wider(names_from = scenario, values_from = per_range_w_host) |>
+    mutate(change_fut26 = future26-current,
+           change_fut85 = future85-current)
+```
+
+```{r}
+# ggplot(overlaps_change, aes(x = change_fut26)) +
+#     geom_histogram(bins = 30, fill = "blue", alpha = 0.5) +
+#     labs(x = "Change in % of range occupied by host plants (future26 - current)", y = "Count") +
+#     theme_minimal()
+
+ggplot(overlaps_change, aes(x = fct_reorder(Species, change_fut26), y = change_fut26,
+                            fill = degree_hmsc)) +
+    geom_bar(stat = "identity") +
+    paletteer::scale_fill_paletteer_c("ggthemes::Red-Gold") +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) +
+    labs(title = "Change in % of range occupied by host plants",
+         subtitle = "(Future26 - Current)", 
+         x = "Butterfly species", y = "% change in overlap with host plants")
+```
+
+```{r}
+ggplot(overlaps_change, aes(x = fct_reorder(Species, change_fut85), y = change_fut85,
+                            fill = bf_family)) +
+    geom_bar(stat = "identity") +
+    paletteer::scale_fill_paletteer_d("ggthemes::Classic_Green_Orange_12") +
+    theme(legend.position = "bottom", axis.text.x = element_blank()) +
+    labs(title = "Change in % of range occupied by host plants",
+         subtitle = "(Future85 - Current)", fill = NULL,
+         x = "Butterfly species", y = "% change in overlap with host plants")
+```
+
+So most species will have an increase in overlap with their range occupied by host plants, but some will have a decrease. No specific pattern regarding the degree or the family (was hoping for species with lower degree to be more affected and certain families to be more resilient, but I guess we would need a specific model to test that). This is just a 1st visual approximation.
+
+
+
+Session info:
+
+```{r}
+sessionInfo()
+```
