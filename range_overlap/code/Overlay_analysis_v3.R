@@ -9,7 +9,7 @@ Overlay_analysis = function(papilio_test, model) {
   if (papilio_test) {
     output_dir = '/scratch/project_2011416/Output/Papilio'
   } else {
-    output_dir = '/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/hmsc/output'
+    output_dir = '/Users/elqu2194/Documents/SLU_EvoNets/swiss_butterflies_hmsc/range_overlap/output'
   }
   
   #read in mean predicted probability
