@@ -1,24 +1,27 @@
 ---
-title: "Correlating residuals with interaction information"
+title: "Correlating HMSC residuals with interaction information"
 author: "Elena Quintero"
 # format: gfm
-format: html  
+format: 
+    html:
+        code-fold: true 
 self-contained: true
+execute: 
+  warning: false
+  message: false
 ---
 
-Load data
+Load packages and data
 
 ```{r}
-#| message: false
-#| warning: false
 library(here)
 library(tidyverse)
 library(ggplot2)
 library(ggdist)
+theme_set(theme_minimal())
 ```
 
 ```{r}
-#| message: false
 load(here::here("hmsc/output/cooccurrence_matrix_non_spat.RData"))
 
 ints <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv"))
@@ -29,8 +32,9 @@ butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
 plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
 ```
 
-## Correlation JSDM residuals and species interactions
+## Relationship between JSDM residuals and species interactions
 
+Load HMSC model residuals.
 ```{r}
 residuals_mat <- OmegaCor[[1]]$mean
 
@@ -43,20 +47,23 @@ residuals_long <- residuals_mat |>
     pivot_longer(cols = -bf_taxa, names_to = "pl_taxa", values_to = "residuals") |> 
     filter(!is.na(residuals)) |> 
     filter(bf_taxa %in% butterflies & pl_taxa %in% plants)
-
-# checking dimenstion
-nrow(residuals_long)
-163*165 #plant taxa times animal taxa
 ```
 
-Load interaction data and metaweb data, and join with residuals.
+Checking matrix dimension
+```{r}
+nrow(residuals_long)
+```
+From 163*165 = 26,995 plant taxa times animal taxa
+
+Load Swiss interaction data and European metaweb data (potential interactions), and join with residuals.
+
 ```{r}
 ints_long <- ints |> 
     rename(pl_taxa = ...1) |>
     pivot_longer(cols = -pl_taxa, names_to = "bf_taxa", values_to = "interaction") |> 
     #Change to "Polygonia_c.album" "Satyrium_w.album" 
     mutate(bf_taxa = str_replace(bf_taxa, "-", "."))
-nrow(ints_long) # more interactions than in residuals df, because some species are not in the model
+nrow(ints_long) # more interactions than in residuals df, because some taxa are not in the hmsc model
 # setdiff(unique(ints_long$bf_taxa), unique(residuals_long$bf_taxa))
 
 metaweb_long <- metaweb |> 
@@ -64,7 +71,7 @@ metaweb_long <- metaweb |>
     pivot_longer(cols = -pl_taxa, names_to = "bf_taxa", values_to = "int_potential") |> 
     #Change to "Polygonia_c.album" "Satyrium_w.album" 
     mutate(bf_taxa = str_replace(bf_taxa, "-", "."))
-nrow(metaweb_long)
+nrow(metaweb_long) # Again, more interactions than in residuals df, because some taxa are not in the model
 
 df <- residuals_long |> 
     left_join(ints_long, by = c("bf_taxa", "pl_taxa")) |> 
@@ -72,7 +79,8 @@ df <- residuals_long |>
     mutate(int_evidence = case_when(
         interaction == 1 ~ "recorded",
         int_potential == 1 ~ "potential",
-        TRUE ~ "absence"
+        int_potential == 0 ~ "absent",
+        TRUE ~ NA_character_
     ))
 ```
 
@@ -94,75 +102,75 @@ df <- df |>
     left_join(support_long, by = c("bf_taxa", "pl_taxa"))
 ```
 
-Overview:
+Overview of HMSC residuals and support values for the different levels of interaction evidence (recorded, potential, absence):
 
 ```{r}
-df |> group_by(interaction) |> 
+df |> group_by(int_evidence) |> 
     summarise(n = n(),
               mean_residuals = mean(residuals), 
               sd_residuals = sd(residuals),
               mean_support = mean(support),
               sd_support = sd(support)) |> 
     arrange(desc(mean_residuals))
-# NA of interaction come from the genus Vulpia which is not reported in Clarke (neither in the potential df). Although Vulpia is supposed to be a synonim of Festuca which is indeed recorded in Clarke
 ```
 
-Distribution plot of residuals for observed interactions:
+**OBS!:** *NA interactions come from the genus Vulpia which is not reported in Clarke (neither in the potential df). Although Vulpia is supposed to be a synonim of Festuca which is indeed recorded in Clarke. So, we have no interaction data for this genus. Removing these NAs from further plots and analyses.*
+
+Distribution plot of residuals for **observed** interactions:
 ```{r}
 ggplot(df|> filter(!is.na(interaction)), 
-        aes(x = residuals, y = 1, 
+        aes(x = residuals, 
             fill = as.factor(interaction), 
             color = as.factor(interaction))) +
     ggdist::stat_halfeye(alpha  = 0.5) +
-    theme_minimal() + theme(legend.position = "none") 
+    paletteer::scale_fill_paletteer_d("ggthemes::Tableau_20") +
+    paletteer::scale_color_paletteer_d("ggthemes::Tableau_20") +
+    theme(legend.position = "bottom") + 
+    labs(fill = "Observed interaction", color = "Observed interaction")
 ```
 
-Distribution plot of residuals for observed AND POTENTIAL interactions:
-```{r}
-ggplot(df |> filter(!is.na(int_potential)), 
-        aes(x = residuals, y = 1, 
-            fill = as.factor(int_potential), 
-            color = as.factor(int_potential))) +
-    ggdist::stat_halfeye(alpha  = 0.5) +
-    theme_minimal() + theme(legend.position = "none") 
-```
-
-Distribution plot of residuals SEPARATING observed and potential interactions:
+Distribution plot of residuals **SEPARATING observed and potential** interactions:
 ```{r}
 ggplot(df |> filter(!is.na(int_potential)), 
         aes(x = residuals, y = 1, 
             fill = int_evidence, 
             color = int_evidence)) +
     ggdist::stat_halfeye(alpha  = 0.5) +
-    theme_minimal() +
-    theme(legend.position = "bottom")
+    paletteer::scale_fill_paletteer_d("ggthemes::Tableau_20") +
+    paletteer::scale_color_paletteer_d("ggthemes::Tableau_20") +
+    theme(legend.position = "bottom") + 
+    labs(fill = "Interaction evidence", color = "Interaction evidence")
 ```
 
 Plot relation of residuals with support for the different level of interaction evidence:
 ```{r}
-# hist(df$interaction)
-# hist(df$int_potential)
-# hist(df$residuals)
-# hist(df$support)
-
 ggplot(df|> filter(!is.na(int_potential)), 
            aes(x = support, y = residuals, 
                fill = as.factor(int_evidence), 
                color = as.factor(int_evidence))) +
     geom_point(alpha = 0.2) +
     facet_wrap(~int_evidence) +
-    theme_minimal() + theme(legend.position = "none")
+    theme_minimal() + 
+    paletteer::scale_fill_paletteer_d("ggthemes::Tableau_20") +
+    paletteer::scale_color_paletteer_d("ggthemes::Tableau_20") +
+    theme(legend.position = "none") 
 ```
 
 ## Model for testing interaction effect on residuals
 ```{r}
 #| message: false
 #| warning: false
+
+# hist(df$interaction)
+# hist(df$int_potential)
+# hist(df$residuals)
+# hist(df$support)
+
 library(glmmTMB)
 
 hist(df$residuals)
 
-m1 <- glmmTMB(residuals ~ int_evidence + (1 | bf_taxa), family = gaussian, data = df)
+m1 <- glmmTMB(residuals ~ int_evidence + (1 | bf_taxa) + (1 | pl_taxa), family = gaussian, data = df)
 summary(m1)
 # performance::check_model(m1)
 DHARMa::simulateResiduals(m1, plot = TRUE)
@@ -170,9 +178,26 @@ visreg::visreg(m1, "int_evidence", scale = "response", gg = TRUE) + theme_minima
 emmeans::emmeans(m1, pairwise ~ int_evidence)
 ```
 
+There seems to be a clear positive effect of the interaction on the residuals, with recorded interactions having higher residuals than potential interactions and absences.
+
+**Alternative model: adding support as a predictor**
+
+Weird residual distribution.
+
 ```{r}
-m2 <- glmmTMB(residuals ~ int_evidence + (1 | bf_taxa) + (1 | pl_taxa), family = gaussian, data = df)
-m3 <- glmmTMB(residuals ~ int_evidence, family = gaussian, data = df)
+m2 <- glmmTMB(residuals ~ int_evidence + support + (1 | bf_taxa) + (1 | pl_taxa), family = gaussian, data = df)
 summary(m2)
 DHARMa::simulateResiduals(m2, plot = TRUE)
+visreg::visreg(m2, "int_evidence", scale = "response", gg = TRUE) + theme_minimal()
+emmeans::emmeans(m2, pairwise ~ int_evidence)
+```
+
+If we had posterior distributions from the JSDM rather than just one residual value per animal–plant pair, we could build a better model considering uncertainty.
+
+
+
+Session info:
+
+```{r}
+sessionInfo()
 ```
