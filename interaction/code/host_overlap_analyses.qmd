@@ -84,10 +84,10 @@ bf_info <- full_join(bf_info, bf_info_hmsc) |>
     mutate(degree_hmsc = ifelse(is.na(degree_hmsc), 0, degree_hmsc))
 ```
 
-Compare the butterfly degree (no. of host plants) between the Clarke network and the HMSC model (after filtering out plants for which we have no distribution data):
+Compare the butterfly degree (no. of host plants) between the Clarke network and the HMSC model (after filtering out plants for which we have no distribution data).
 
+List of species which changed their degree (hosts that are not in the hmsc): 
 ```{r}
-# Species which changed the degree (hosts that were lost for these species)
 bf_info |> mutate(degree_decrease = degree_hmsc-degree_net) |> 
     filter(degree_hmsc != degree_net) |> ungroup() |> 
     select(bf_taxa, degree_net, degree_hmsc, degree_decrease) |> 
@@ -99,7 +99,7 @@ ggplot(bf_info, aes(x = degree_net, y = degree_hmsc)) +
     labs(x = "Degree (Clarke Swiss network)", y = "Degree (after filter HMSC plant genus)")
 ```
 
-There has been a considerable loss in the number of host plants for some butterfly species (19 out of 152), although degree is still correlated between the two datasets. Species with a more marked loss of information are: *Lycaena_helle* and *Scolitantides_orion* which lost their unique host plant (no info for their host plant genus distributed in the hmsc model, *Bistorta* and *Hylotelephium* respectively). And *Papilio_machaon*, *Vanessa_cardui*, *Pieris_mannii*, which lost 7 to 4 host plant species. Would it be crazy to rerun the hmsc including these new plant genera (aprox. 45 new genera reported in Clarke with no info on hmsc range)? No idea how much time and effort it takes...
+There has been a considerable loss in the number of host plants for some butterfly species (19 out of 152 species), although degree is still correlated between the two datasets. Species with a more marked loss of information are: *Lycaena_helle* and *Scolitantides_orion* which lost their unique host plant (no info for their host plant genus distributed in the hmsc model, *Bistorta* and *Hylotelephium* respectively). And *Papilio_machaon*, *Vanessa_cardui*, *Pieris_mannii*, which lost 7 to 4 host plant species. Would it be crazy to rerun the hmsc including these new plant genera (aprox. 45 new genera reported in Clarke with no info on hmsc range)? No idea how much time and effort it takes...
 
 Combine overlaps with butterfly info:
 
@@ -119,6 +119,8 @@ ggplot(overlaps |> filter(scenario == "current"),
     theme(legend.position = "bottom", axis.text.x = element_blank())
 ```
 
+Big differences in range size between species, but no clear pattern regarding their degree (no. of host plants).
+
 ## Correlate % of host overlap (relative to the butterfly's range)
 
 Plot % of butterfly range occupied by host plants for each butterfly species, colored by degree:
@@ -136,6 +138,9 @@ ggplot(overlaps |> filter(scenario == "current"),
     labs(x = "Butterfly species", y = "% of range occupied by host plants")
 ```
 
+There is great variation in the overlap with hosts relative to species range. Some species overlap almost in all its range 99%, others even less than 10% (minimum 0.05% *Plebejus_argyrognomon*, next is *Pieris_mannii* with only 0.3% overlap of its range). *Lycaena_helle* and *Scolitantides_orion* have no reported host range.
+There seems to be a tendency for species with higher degree to have a higher % of range occupied by host plants (which I guess makes sense).
+
 Using network degree instead (derived from Clarke):
 ```{r}
 ggplot(overlaps |> filter(scenario == "current"), 
@@ -147,6 +152,8 @@ ggplot(overlaps |> filter(scenario == "current"),
     theme(legend.position = "bottom", axis.text.x = element_blank()) + 
     labs(x = "Butterfly species", y = "% of range occupied by host plants")
 ```
+
+The pattern regarding the degree in the netwrok is lower, but still present.
 
 For the 3 scenarios:
 
@@ -188,6 +195,9 @@ overlaps_change <- overlaps |>
            change_fut85 = future85-current)
 ```
 
+So we know in general the overlap with host plants will increase in the future, but now see for every species.
+
+For **Future 26** scenario:
 ```{r}
 # ggplot(overlaps_change, aes(x = change_fut26)) +
 #     geom_histogram(bins = 30, fill = "blue", alpha = 0.5) +
@@ -204,6 +214,8 @@ ggplot(overlaps_change, aes(x = fct_reorder(Species, change_fut26), y = change_f
          x = "Butterfly species", y = "% change in overlap with host plants")
 ```
 
+For **Future 85** scenario:
+
 ```{r}
 ggplot(overlaps_change, aes(x = fct_reorder(Species, change_fut85), y = change_fut85,
                             fill = bf_family)) +
@@ -215,8 +227,9 @@ ggplot(overlaps_change, aes(x = fct_reorder(Species, change_fut85), y = change_f
          x = "Butterfly species", y = "% change in overlap with host plants")
 ```
 
-So most species will have an increase in overlap with their range occupied by host plants, but some will have a decrease. No specific pattern regarding the degree or the family (was hoping for species with lower degree to be more affected and certain families to be more resilient, but I guess we would need a specific model to test that). This is just a 1st visual approximation.
+So most species will have an increase in overlap with their range occupied by host plants (n = 116 species, **77%** in fut26; n = 127 species, **84%** in fut85), some as much as 40%! But some butterflies will experience a decrease. No specific detectable pattern regarding the degree or the family (I was hoping for species with lower degree to be more affected and certain families to be more resilient, but I guess we would need a specific model to test that). This is just a 1st visual approximation.
 
+*Disclaimer: I am saying Percentage (%) when I am really showing proportion throughout the code...*
 
 
 Session info:

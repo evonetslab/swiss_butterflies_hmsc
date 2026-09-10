@@ -2315,15 +2315,15 @@ vertical-align: -.125em;
 <span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>    <span class="fu">mutate</span>(<span class="at">degree_hmsc =</span> <span class="fu">ifelse</span>(<span class="fu">is.na</span>(degree_hmsc), <span class="dv">0</span>, degree_hmsc))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
-<p>Compare the butterfly degree (no. of host plants) between the Clarke network and the HMSC model (after filtering out plants for which we have no distribution data):</p>
+<p>Compare the butterfly degree (no. of host plants) between the Clarke network and the HMSC model (after filtering out plants for which we have no distribution data).</p>
+<p>List of species which changed their degree (hosts that are not in the hmsc):</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Species which changed the degree (hosts that were lost for these species)</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>bf_info <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">degree_decrease =</span> degree_hmsc<span class="sc">-</span>degree_net) <span class="sc">|&gt;</span> </span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(degree_hmsc <span class="sc">!=</span> degree_net) <span class="sc">|&gt;</span> <span class="fu">ungroup</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">select</span>(bf_taxa, degree_net, degree_hmsc, degree_decrease) <span class="sc">|&gt;</span> </span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">arrange</span>(degree_decrease)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>bf_info <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">degree_decrease =</span> degree_hmsc<span class="sc">-</span>degree_net) <span class="sc">|&gt;</span> </span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(degree_hmsc <span class="sc">!=</span> degree_net) <span class="sc">|&gt;</span> <span class="fu">ungroup</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">select</span>(bf_taxa, degree_net, degree_hmsc, degree_decrease) <span class="sc">|&gt;</span> </span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">arrange</span>(degree_decrease)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 19 × 4
@@ -2364,7 +2364,7 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
-<p>There has been a considerable loss in the number of host plants for some butterfly species (19 out of 152), although degree is still correlated between the two datasets. Species with a more marked loss of information are: <em>Lycaena_helle</em> and <em>Scolitantides_orion</em> which lost their unique host plant (no info for their host plant genus distributed in the hmsc model, <em>Bistorta</em> and <em>Hylotelephium</em> respectively). And <em>Papilio_machaon</em>, <em>Vanessa_cardui</em>, <em>Pieris_mannii</em>, which lost 7 to 4 host plant species. Would it be crazy to rerun the hmsc including these new plant genera (aprox. 45 new genera reported in Clarke with no info on hmsc range)? No idea how much time and effort it takes…</p>
+<p>There has been a considerable loss in the number of host plants for some butterfly species (19 out of 152 species), although degree is still correlated between the two datasets. Species with a more marked loss of information are: <em>Lycaena_helle</em> and <em>Scolitantides_orion</em> which lost their unique host plant (no info for their host plant genus distributed in the hmsc model, <em>Bistorta</em> and <em>Hylotelephium</em> respectively). And <em>Papilio_machaon</em>, <em>Vanessa_cardui</em>, <em>Pieris_mannii</em>, which lost 7 to 4 host plant species. Would it be crazy to rerun the hmsc including these new plant genera (aprox. 45 new genera reported in Clarke with no info on hmsc range)? No idea how much time and effort it takes…</p>
 <p>Combine overlaps with butterfly info:</p>
 <div class="cell">
 <details class="code-fold">
@@ -2394,6 +2394,7 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
+<p>Big differences in range size between species, but no clear pattern regarding their degree (no. of host plants).</p>
 </section>
 <section id="correlate-of-host-overlap-relative-to-the-butterflys-range" class="level2">
 <h2 class="anchored" data-anchor-id="correlate-of-host-overlap-relative-to-the-butterflys-range">Correlate % of host overlap (relative to the butterfly’s range)</h2>
@@ -2419,6 +2420,7 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
+<p>There is great variation in the overlap with hosts relative to species range. Some species overlap almost in all its range 99%, others even less than 10% (minimum 0.05% <em>Plebejus_argyrognomon</em>, next is <em>Pieris_mannii</em> with only 0.3% overlap of its range). <em>Lycaena_helle</em> and <em>Scolitantides_orion</em> have no reported host range. There seems to be a tendency for species with higher degree to have a higher % of range occupied by host plants (which I guess makes sense).</p>
 <p>Using network degree instead (derived from Clarke):</p>
 <div class="cell">
 <details class="code-fold">
@@ -2440,6 +2442,7 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
+<p>The pattern regarding the degree in the netwrok is lower, but still present.</p>
 <p>For the 3 scenarios:</p>
 <div class="cell">
 <details class="code-fold">
@@ -2498,6 +2501,8 @@ vertical-align: -.125em;
 <span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>           <span class="at">change_fut85 =</span> future85<span class="sc">-</span>current)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
+<p>So we know in general the overlap with host plants will increase in the future, but now see for every species.</p>
+<p>For <strong>Future 26</strong> scenario:</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
@@ -2523,6 +2528,7 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
+<p>For <strong>Future 85</strong> scenario:</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
@@ -2543,7 +2549,9 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
-<p>So most species will have an increase in overlap with their range occupied by host plants, but some will have a decrease. No specific pattern regarding the degree or the family (was hoping for species with lower degree to be more affected and certain families to be more resilient, but I guess we would need a specific model to test that). This is just a 1st visual approximation.</p>
+<p>So most species will have an increase in overlap with their range occupied by host plants (n = 116 species, <strong>77%</strong> in fut26; n = 127 species, <strong>84%</strong> in fut85), some as much as 40%! But some butterflies will experience a decrease. No specific detectable pattern regarding the degree or the family (I was hoping for species with lower degree to be more affected and certain families to be more resilient, but I guess we would need a specific model to test that). This is just a 1st visual approximation.</p>
+<p><em>Disclaimer: I am saying Percentage (%) when I am really showing proportion throughout the code…</em></p>
+<p>Session info:</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>

@@ -194,7 +194,7 @@ emmeans::emmeans(m2, pairwise ~ int_evidence)
 
 If we had posterior distributions from the JSDM rather than just one residual value per animal–plant pair, we could build a better model considering uncertainty.
 
-
+To be continued...
 
 Session info:
 
