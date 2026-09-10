@@ -53,7 +53,7 @@ Checking matrix dimension
 ```{r}
 nrow(residuals_long)
 ```
-From 163*165 = 26,995 plant taxa times animal taxa
+From 163*165 = 26,895 (plant taxa times animal taxa)
 
 Load Swiss interaction data and European metaweb data (potential interactions), and join with residuals.
 
@@ -176,9 +176,12 @@ summary(m1)
 DHARMa::simulateResiduals(m1, plot = TRUE)
 visreg::visreg(m1, "int_evidence", scale = "response", gg = TRUE) + theme_minimal()
 emmeans::emmeans(m1, pairwise ~ int_evidence)
+performance::r2_nakagawa(m1)
+# insight::get_variance(m1)
 ```
 
 There seems to be a clear positive effect of the interaction on the residuals, with recorded interactions having higher residuals than potential interactions and absences.
+Interaction evidence explains 0.7% of the variation in JSDM residual associations, including animal and plant taxon identity increased the explained variance to 39.1%.
 
 **Alternative model: adding support as a predictor**
 
@@ -190,6 +193,7 @@ summary(m2)
 DHARMa::simulateResiduals(m2, plot = TRUE)
 visreg::visreg(m2, "int_evidence", scale = "response", gg = TRUE) + theme_minimal()
 emmeans::emmeans(m2, pairwise ~ int_evidence)
+performance::r2_nakagawa(m2)
 ```
 
 If we had posterior distributions from the JSDM rather than just one residual value per animal–plant pair, we could build a better model considering uncertainty.
