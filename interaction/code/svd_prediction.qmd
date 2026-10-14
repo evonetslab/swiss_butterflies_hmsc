@@ -11,7 +11,7 @@ library(tidyverse)
 ```
 
 ```{r}
-obs.mat <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv")) |>
+clarke.long <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv")) |>
     rename(plant = ...1) |>
     pivot_longer(cols = -plant, names_to = "butterfly", values_to = "interaction")
 
@@ -19,17 +19,22 @@ taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE
 butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
 plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
 
-obs.mat.hmsc <- obs.mat |> 
+obs.mat <- clarke.long |> 
+  pivot_wider(names_from = butterfly, values_from = interaction) |>
+  column_to_rownames("plant")
+
+obs.mat.hmsc <- clarke.long |> 
   filter(plant %in% plants & butterfly %in% butterflies) |> 
   pivot_wider(names_from = butterfly, values_from = interaction) |>
   column_to_rownames("plant")
 ```
 
 ```{r}
+dim(obs.mat) #rows and cols
 dim(obs.mat.hmsc) #rows and cols
 
-svd <- svd(obs.mat.hmsc)
-#what does sv contain?
+svd <- svd(obs.mat)
+#SVD contains:
 u <- svd$u # left singular vectors (plants)
 v <- svd$v # right singular vectors (butterflies)
 d <- svd$d # singular values
@@ -37,12 +42,12 @@ d <- svd$d # singular values
 eigenvalues <- svd$d^2 #variance = singular value²
 proportion_variance_explained <- eigenvalues / sum(eigenvalues)
 
-sum(proportion_variance_explained[1:16]) #60% of variance explained by first 16 singular values
+sum(proportion_variance_explained[1:20]) #60% of variance explained by first 20 singular values
 ```
 
 ```{r}
-k = 16
-svd16 <- svd(obs.mat.hmsc, nu = k, nv = k)
+k = 20
+svd16 <- svd(obs.mat, nu = k, nv = k)
 
 plants.latent <- svd16$u %*% diag(sqrt(svd16$d[1:k])) # Plant Latent Positions (n x k)
 leps.latent <- svd16$v %*% diag(sqrt(svd16$d[1:k])) # Butterflies Latent Positions (m x k)
@@ -50,8 +55,8 @@ leps.latent <- svd16$v %*% diag(sqrt(svd16$d[1:k])) # Butterflies Latent Positio
 #retrieve the probability matrix
 P_hat <- plants.latent %*% t(leps.latent)
 #assign row and column names to the reconstructed matrix
-rownames(P_hat) <- rownames(obs.mat.hmsc)
-colnames(P_hat) <- colnames(obs.mat.hmsc)
+rownames(P_hat) <- rownames(obs.mat)
+colnames(P_hat) <- colnames(obs.mat)
 ```
 
 
@@ -60,7 +65,7 @@ df.Phat <- P_hat |> as.data.frame() |>
   rownames_to_column("pl_taxa") |>
   pivot_longer(-pl_taxa, names_to = "bf_taxa", values_to = "Predicted")
 
-df <- obs.mat.hmsc |> as.data.frame() |> 
+df <- obs.mat |> as.data.frame() |> 
   rownames_to_column("pl_taxa") |>
   pivot_longer(-pl_taxa, names_to = "bf_taxa", values_to = "Original") |> 
   full_join(df.Phat, by = c("pl_taxa", "bf_taxa"))
@@ -99,5 +104,5 @@ plot(pr)
 
 
 ```{r}
-write_csv(df, here::here("interaction/svd_prediction.csv"))
+write_csv(df, here::here("interaction/output/svd_prediction.csv"))
 ```

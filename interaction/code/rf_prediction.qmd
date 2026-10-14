@@ -1,0 +1,493 @@
+---
+title: "Simple model for predicting interactions using random forest"
+format: html
+---
+
+```{r}
+#| message: false
+#| warning: false
+library(here)
+library(tidyverse)
+library(tidylog)
+```
+
+```{r}
+obs.mat <- read_csv(here::here("interaction/data/Swiss_web_gen_strict.csv")) 
+dim(obs.mat) #rows and cols
+obs.mat.long <- obs.mat |>
+    rename(plant = ...1) |>
+    pivot_longer(cols = -plant, names_to = "butterfly", values_to = "interaction")
+
+taxa <- read_csv(here::here("interaction/taxa_list_hmsc.csv"), col_names = FALSE)
+butterflies <- taxa$X1[!is.na(taxa$X1)] |> unique()
+plants <- taxa$X3[!is.na(taxa$X3)] |> unique() 
+
+obs.mat.hmsc.long <- obs.mat.long |> 
+  filter(plant %in% plants & butterfly %in% butterflies) 
+
+obs.mat.hmsc <- obs.mat.hmsc.long |>
+  pivot_wider(names_from = butterfly, values_from = interaction) |>
+  column_to_rownames("plant")
+
+dim(obs.mat.hmsc) #rows and cols
+sum(obs.mat.hmsc) #number of interactions
+nrow(obs.mat.hmsc) * ncol(obs.mat.hmsc) #number of cells
+sum(obs.mat.hmsc) / (nrow(obs.mat.hmsc) * ncol(obs.mat.hmsc)) # sparsity / connectance
+```
+
+Split data into train/test BEFORE computing SVD and phylogenetic features
+Hold out 15% of the 1s (observed interactions) for testing, and 15% of the 0s in training
+```{r}
+set.seed(7)
+
+# Split interactions: 85% train, 15% test
+ones_train <- obs.mat.hmsc.long |> filter(interaction == 1) |> sample_frac(0.85)
+ones_test  <- anti_join(obs.mat.hmsc.long |> filter(interaction == 1), ones_train)
+
+# Training set: all zeros + 85% of ones
+zeros_train <- obs.mat.hmsc.long |> filter(interaction == 0) |> sample_frac(0.85)
+train_data <- bind_rows(zeros_train, ones_train)
+
+# Test set: 15% of held-out ones + sample of zeros for evaluation
+zeros_test <- zeros_train |> sample_frac(0.2)  # sample 20% of zeros for fair test set
+test_data <- bind_rows(zeros_test, ones_test)
+
+cat("Training set size:", nrow(train_data), "| ones:", sum(train_data$interaction), "\n")
+cat("Test set size:", nrow(test_data), "| ones:", sum(test_data$interaction), "\n")
+
+length(unique(train_data$plant)) # number of unique plants in training
+length(unique(train_data$butterfly)) # number of unique butterflies in training
+length(unique(test_data$plant)) # number of unique plants in test
+length(unique(test_data$butterfly)) # number of unique butterflies in test
+
+# Create matrices for SVD computation ONLY from training data
+mat.train <- train_data |>
+  pivot_wider(names_from = butterfly, values_from = interaction, values_fill = 0) |>
+  column_to_rownames("plant") |> as.matrix()
+```
+
+Extract latent positions for plants and butterflies using SVD on training data only
+```{r}
+k = 10
+svdk <- svd(mat.train, nu = k, nv = k)
+
+plants.latent <- svdk$u %*% diag(sqrt(svdk$d[1:k])) # Plant Latent Positions (n x k)
+rownames(plants.latent) <- rownames(mat.train)
+colnames(plants.latent) <- c(paste0("pl_svd", 1:ncol(plants.latent)))
+plants.latent.df <- plants.latent |> as.data.frame() |> 
+  rownames_to_column("pl_taxa")
+
+leps.latent <- svdk$v %*% diag(sqrt(svdk$d[1:k])) # Butterflies Latent Positions (m x k)
+rownames(leps.latent) <- colnames(mat.train)
+colnames(leps.latent) <- c(paste0("bf_svd", 1:ncol(leps.latent)))
+leps.latent.df <- leps.latent |> as.data.frame() |> 
+  rownames_to_column("bf_taxa")
+
+#retrieve the probability matrix
+P_hat <- plants.latent %*% t(leps.latent)
+#assign row and column names to the reconstructed matrix
+rownames(P_hat) <- rownames(mat.train)
+colnames(P_hat) <- colnames(mat.train)
+```
+
+```{r}
+Phat_long <- P_hat |> as.data.frame() |> 
+  rownames_to_column("pl_taxa") |>
+  pivot_longer(-pl_taxa, names_to = "bf_taxa", values_to = "Predicted") |> 
+  left_join(obs.mat.hmsc.long, by = c("bf_taxa" = "butterfly", "pl_taxa" = "plant"))
+
+library(cutpointr)
+
+cutpoint <- cutpointr(Phat_long, 
+    x = Predicted, class = interaction, 
+    pos_class = 1,
+    method = maximize_metric, 
+    metric = youden)
+cutpoint$optimal_cutpoint
+
+Phat_long$Predicted_co <- ifelse(Phat_long$Predicted >= cutpoint$optimal_cutpoint, 1, 0)
+
+# Check model performance with confusion matrix
+
+library(caret)
+# Calculate main performance metrics
+confusionMatrix(factor(Phat_long$Predicted_co), factor(Phat_long$interaction),
+                positive = "1")
+
+```
+
+## Add phylogeny
+
+Butterflies tree (Re-check the origin of the tree)
+
+```{r}
+library(ape)
+library(ggtree)
+phylo.leps <- read.tree(here::here("interaction/data/GRAFTED_POST_DIST_EUROPEAN_MCC.nwk"))
+ggtree(phylo.leps, layout = "circular") + geom_tiplab(size = 1.5)
+```
+
+```{r}
+# Butterfly species with interaction AND phylogeny data
+sum(butterflies %in% phylo.leps$tip.label)
+# Butterflies not present in the phylogeny 
+setdiff(butterflies, phylo.leps$tip.label)
+
+# Change these four species names on tips of phylogeny for their synonims
+phylo.leps$tip.label[phylo.leps$tip.label == "Polygonia_c-album"] <- "Polygonia_c.album"
+phylo.leps$tip.label[phylo.leps$tip.label == "Satyrium_w-album"] <- "Satyrium_w.album"
+
+setdiff(butterflies, phylo.leps$tip.label)
+```
+
+Plant tree (Re-check the origin of the tree)
+
+```{r}
+phylo.plants <- read.tree(here("interaction/data/seedplant_genera_tree_young.tre"))
+# ggtree(phylo.plants, layout = "circular")
+summary(phylo.plants$edge.length) #in Mya?
+```
+
+```{r}
+phylo.plants$tip.label <- word(phylo.plants$tip.label, 3,3, sep = "_")
+# Butterfly species with interaction AND phylogeny data
+sum(plants %in% phylo.plants$tip.label)
+# Plant genera not present in the phylogeny
+setdiff(plants, phylo.plants$tip.label)
+```
+
+Keep only butterfly and plant taxa from training data in the trees
+```{r}
+# Get taxa present in TRAINING data only
+train_butterflies <- unique(train_data$butterfly)
+train_plants <- unique(train_data$plant)
+
+phylo.leps.train <- ape::keep.tip(phylo.leps,
+   intersect(phylo.leps$tip.label, train_butterflies), 
+   trim.internal = TRUE)
+
+phylo.plants.train <- ape::keep.tip(phylo.plants,
+   intersect(phylo.plants$tip.label, train_plants), 
+   trim.internal = TRUE)
+
+cat("Training butterflies in phylogeny:", length(phylo.leps.train$tip.label), "\n")
+cat("Training plants in phylogeny:", length(phylo.plants.train$tip.label), "\n")
+```
+
+Phylogenetic decomposition of the trees to get eigenvectors (from training data only).
+
+```{r}
+leps_decomp <- PVR::PVRdecomp(phy = phylo.leps.train, type = "newick", scale=TRUE)
+
+#variance explained by each eigenvector
+leps_decomp@Eigen$values |> 
+  as_tibble() |>
+  mutate(eigenv = row_number()) |>
+  ggplot(aes(x = eigenv, y = value)) +
+  geom_line() + geom_point() +
+  labs(title = "LEPS variance explained by eigenvectors (training data)") +
+  theme_minimal() 
+
+leps_decomp@Eigen$values |> 
+  as_tibble() |>
+  mutate(var_explaines = value/sum(value)*100,
+         cum_var_explained = cumsum(value)/sum(value)*100,
+         eigenv = row_number()) |>
+  ggplot(aes(x = eigenv, y = cum_var_explained)) +
+  geom_line() + geom_point() +
+  labs(title = "LEPS variance explained by eigenvectors (training data)") +
+  theme_minimal()
+
+sum((round((leps_decomp@Eigen$values)/sum((leps_decomp@Eigen$values)),3)*100)[1:10]) 
+#first 10 vectors contain about X% of variation
+
+phylo.dc.leps <- data.frame(phylo.leps.train$tip.label, leps_decomp@Eigen$vectors[,1:10])
+colnames(phylo.dc.leps) <- c("bf_taxa", paste0("bf_phylo_ev", 1:10))
+```
+
+```{r}
+plants_decomp <- PVR::PVRdecomp(phy = phylo.plants.train, type = "newick", scale=TRUE)
+
+plants_decomp@Eigen$values |> 
+  as_tibble() |>
+  mutate(eigenv = row_number()) |>
+  ggplot(aes(x = eigenv, y = value)) +
+  geom_line() + geom_point() +
+  labs(title = "PLANTS variance explained by eigenvectors (training data)") +
+  theme_minimal() 
+
+plants_decomp@Eigen$values |> 
+  as_tibble() |>
+  mutate(var_explaines = value/sum(value)*100,
+         cum_var_explained = cumsum(value)/sum(value)*100,
+         eigenv = row_number()) |>
+  ggplot(aes(x = eigenv, y = cum_var_explained)) +
+  geom_line() + geom_point() +
+  labs(title = "PLANTS variance explained by eigenvectors (training data)") +
+  theme_minimal() 
+
+sum((round((plants_decomp@Eigen$values)/sum((plants_decomp@Eigen$values)),3)*100)[1:10]) 
+#first 10 vectors contain about X% of variation
+
+phylo.dc.plants <- data.frame(phylo.plants.train$tip.label, plants_decomp@Eigen$vectors[,1:10])
+colnames(phylo.dc.plants) <- c("pl_taxa", paste0("pl_phylo_ev", 1:10))
+```
+
+## Random forest model
+
+Build training dataset with features from training data only
+```{r}
+library(randomForest)
+
+df.train <- train_data |> 
+  left_join(leps.latent.df, by = c("butterfly" = "bf_taxa")) |> 
+  left_join(plants.latent.df, by = c("plant" = "pl_taxa")) |>
+  left_join(phylo.dc.leps, by = c("butterfly" = "bf_taxa")) |> 
+  left_join(phylo.dc.plants, by = c("plant" = "pl_taxa")) |> 
+  mutate(int_fct = as.factor(interaction)) |> 
+  filter(!is.na(bf_svd1) & !is.na(pl_svd1)) |> # remove rows with missing values in the latent positions
+  filter(!is.na(bf_phylo_ev1) & !is.na(pl_phylo_ev1)) # remove rows with missing values in phylogenetic info
+```
+
+```{r}
+# Build test dataset using features learned from training data
+df.test <- test_data |> 
+  left_join(leps.latent.df, by = c("butterfly" = "bf_taxa")) |> 
+  left_join(plants.latent.df, by = c("plant" = "pl_taxa")) |>
+  left_join(phylo.dc.leps, by = c("butterfly" = "bf_taxa")) |> 
+  left_join(phylo.dc.plants, by = c("plant" = "pl_taxa")) |> 
+  mutate(int_fct = as.factor(interaction)) |> 
+  filter(!is.na(bf_svd1) & !is.na(pl_svd1)) |> 
+  filter(!is.na(bf_phylo_ev1) & !is.na(pl_phylo_ev1))
+```
+
+```{r}
+m1 <- randomForest(int_fct ~. -butterfly -plant -interaction,
+                      data = df.train, ntree = 1000,
+                      importance = TRUE)
+m1
+importance(m1)
+varImpPlot(m1)
+# plot(m1)
+
+# Predict on test set
+pred_test <- predict(m1, newdata = df.test, type = "class")
+pred_test_prob <- predict(m1, newdata = df.test, type = "prob")[, "1"]
+
+# Evaluate on test data
+library(caret)
+confusionMatrix(pred_test, df.test$int_fct, positive = "1")
+```
+
+```{r}
+#Predict also on training set to check for overfitting
+pred_train_prob <- predict(m1, newdata = df.train, type = "prob")[, "1"]
+
+# Combine train and test predictions with labels
+results <- bind_rows(
+  df.train.phylo |>
+    mutate(
+      prob = pred_train_prob,
+      dataset = "Training",
+      true_interaction = as.numeric(int_fct) - 1  # Convert factor back to 0/1
+    ),
+  df.test.phylo |>
+    mutate(
+      prob = pred_test_prob,
+      dataset = "Test",
+      true_interaction = as.numeric(int_fct) - 1
+    )
+)
+
+# Plot: predicted probabilities by dataset and true interaction status
+ggplot(results, aes(x = prob, y = dataset, color = as.factor(true_interaction))) +
+  geom_jitter(height = 0.2, alpha = 0.6, size = 2) +
+  theme_bw() +
+  scale_color_manual(
+    values = c("0" = "grey70", "1" = "red"),
+    labels = c("0" = "No interaction", "1" = "True interaction")) +
+  labs(
+    title = "Phylogenetic Model: Predicted Probabilities on Train vs TestData",
+    x = "Predicted Probability",
+    y = "Dataset",
+    color = "True Label") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+# df.model5 <- df.train |> 
+#   select(-c(bf_svd6:bf_svd10)) |> 
+#   select(-c(pl_svd6:pl_svd10)) |> 
+#   select(-c(bf_phylo_ev6:bf_phylo_ev10)) |> 
+#   select(-c(pl_phylo_ev6:pl_phylo_ev10)) 
+
+# m2 <- randomForest(int_fct ~. -butterfly -plant -interaction,
+#                       data = df.model5, ntree = 1000,
+#                       importance = TRUE)
+# m2
+# importance(m2)
+# varImpPlot(m2)
+```
+
+Using only phylogenetic data:
+
+```{r}
+df.train.phylo <- df.train |> 
+  select(-c(bf_svd1:bf_svd10)) |> 
+  select(-c(pl_svd1:pl_svd10))
+
+df.test.phylo <- df.test |> 
+  select(-c(bf_svd1:bf_svd10)) |> 
+  select(-c(pl_svd1:pl_svd10))
+
+m.phylo1 <- randomForest(int_fct ~. -butterfly -plant -interaction,
+                      data = df.train.phylo, ntree = 1000,
+                      importance = TRUE)
+m.phylo1
+importance(m.phylo1)
+varImpPlot(m.phylo1)
+
+# df.train.phylo2 <- df.train |> 
+#   select(int_fct, butterfly, plant, interaction, 
+#   c(bf_phylo_ev1:bf_phylo_ev5),
+#   c(pl_phylo_ev1:pl_phylo_ev5))
+
+# m.phylo2 <- randomForest(int_fct ~. -butterfly -plant -interaction,
+#                       data = df.train.phylo2, ntree = 1000,
+#                       importance = TRUE)
+# m.phylo2
+# importance(m.phylo2)
+# varImpPlot(m.phylo2)
+```
+
+
+```{r}
+# Predictions on training data
+pred_train_prob <- predict(m.phylo1, newdata = df.train.phylo, type = "prob")[, "1"]
+
+# Predictions on test data (already computed)
+pred_test_prob <- predict(m.phylo1, newdata = df.test.phylo, type = "prob")[, "1"]
+
+# Combine train and test predictions with labels
+results <- bind_rows(
+  df.train.phylo |>
+    mutate(
+      prob = pred_train_prob,
+      dataset = "Training",
+      true_interaction = as.numeric(int_fct) - 1  # Convert factor back to 0/1
+    ),
+  df.test.phylo |>
+    mutate(
+      prob = pred_test_prob,
+      dataset = "Test",
+      true_interaction = as.numeric(int_fct) - 1
+    )
+)
+
+# Plot: predicted probabilities by dataset and true interaction status
+ggplot(results, aes(x = prob, y = dataset, color = as.factor(true_interaction))) +
+  geom_jitter(height = 0.2, alpha = 0.6, size = 2) +
+  theme_bw() +
+  scale_color_manual(
+    values = c("0" = "grey70", "1" = "red"),
+    labels = c("0" = "No interaction", "1" = "True interaction")
+  ) +
+  labs(
+    title = "Phylogenetic Model: Predicted Probabilities on Train vs Test Data",
+    x = "Predicted Probability",
+    y = "Dataset",
+    color = "True Label"
+  ) +
+  theme(legend.position = "bottom")
+
+# Summary statistics
+results |> group_by(dataset, true_interaction) |>
+  mutate(cat_int = ifelse(prob > 0.5, 1, 0)) |>  
+  summarise(mean_prob = mean(prob), sd_prob = sd(prob), n = n(), n_correct = sum(cat_int == true_interaction)) |>
+  mutate(accuracy = n_correct/n) |>
+  arrange(dataset, true_interaction) |>
+  print()
+```
+
+
+Using only latent traits:
+
+```{r}
+# df.model.svd <- df.model |> 
+#   select(-c(bf_phylo_ev1:bf_phylo_ev10)) |> 
+#   select(-c(pl_phylo_ev1:pl_phylo_ev10)) 
+
+# m.svd1 <- randomForest(int_fct ~. -butterfly -plant -interaction,
+#                       data = df.model.svd, ntree = 1000,
+#                       importance = TRUE)
+# m.svd1
+# importance(m.svd1)
+# varImpPlot(m.svd1)
+```
+
+## Model using full dataset with only phylogenetic distance
+
+```{r}
+df.model <- obs.mat.hmsc.long |> 
+  # left_join(leps.latent.df, by = c("butterfly" = "bf_taxa")) |>
+  # left_join(plants.latent.df, by = c("plant" = "pl_taxa")) |>
+  left_join(phylo.dc.leps, by = c("butterfly" = "bf_taxa")) |>
+  left_join(phylo.dc.plants, by = c("plant" = "pl_taxa")) |>
+  mutate(int_fct = as.factor(interaction)) |>
+  filter(!is.na(bf_phylo_ev1)) |> 
+  filter(!is.na(pl_phylo_ev1)) # remove rows with missing values in phylogenetic info
+
+m.phylo_full <- randomForest(int_fct ~. -butterfly -plant -interaction,
+                            data = df.model, ntree = 1000,
+                            importance = TRUE)
+m.phylo_full
+# importance(m.phylo_full)
+varImpPlot(m.phylo_full)
+
+pred_full_prob <- predict(m.phylo_full, newdata = df.model, type = "prob")[, "1"]
+
+ggplot(df.model, aes(x = pred_full_prob, y = interaction)) +
+  geom_jitter(height = 0.2, alpha = 0.6, size = 2) +
+  theme_bw() +
+  labs(
+    title = "Phylogenetic Model: Predicted Probabilities on Full Dataset",
+    x = "Predicted Probability",
+    y = "Original Interaction"
+  ) +
+  theme(legend.position = "bottom")
+
+write.csv(df.model |> mutate(predicted_prob = pred_full_prob), 
+          here::here("interaction/output/RF_phylo_model_predictions.csv"), row.names = FALSE)
+```
+
+Check SVD reconstruction for removed interactions
+
+```{r}
+# # set cutoff for predicted probability
+# df.Phat <- P_hat |> as.data.frame() |> 
+#   rownames_to_column("plant") |>
+#   pivot_longer(-plant, names_to = "butterfly", values_to = "Predicted")
+
+# df <- obs.mat.hmsc.long |> full_join(df.Phat)
+
+# # Use cutpointr to find the optimal cutoff
+# library(cutpointr)
+# cutpoint <- cutpointr(df, 
+#     x = Predicted, class = interaction, 
+#     method = maximize_metric, 
+#     metric = youden)
+# cutpoint$optimal_cutpoint
+
+# # Visualize the cutoff on the plot
+# par(mfrow=c(1,1))
+# plot(df$Predicted, df$interaction,
+#      xlab = "Predicted Probability", ylab = "Original Interaction", 
+#      main = "Predicted vs Original Interactions")
+# abline(v = cutpoint$optimal_cutpoint, col = "red", lty = "dashed")
+
+# # plot ROC curve
+# plot(cutpoint)
+
+# # Apply cutoff
+# df$Predicted_co <- ifelse(df$Predicted >= cutpoint$optimal_cutpoint, 1, 0)
+```

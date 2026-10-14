@@ -1,0 +1,95 @@
+---
+title: "Overlap changes for specific butterfly-host interactions"
+# format: gfm
+format: 
+    html:
+        code-fold: true
+self-contained: true
+execute: 
+  warning: false
+  message: false
+---
+
+Load packages
+```{r}
+library(here)
+library(tidyverse)
+library(tidylog)
+library(ggplot2)
+set_theme(theme_minimal())
+```
+
+Read calculated overlaps (current and future scenarios) - updated using new interaction information.
+```{r}
+overlap_current <- read_csv(here("range_overlap/output/range_overlap_hosts_current.csv")) |> 
+    mutate(scenario = "current")
+overlap_fut26 <- read_csv(here("range_overlap/output/range_overlap_hosts_future_26.csv")) |> 
+    mutate(scenario = "future26")
+overlap_fut85 <- read_csv(here("range_overlap/output/range_overlap_hosts_future_85.csv"))|> 
+    mutate(scenario = "future85")
+
+overlap_all <- bind_rows(overlap_current, overlap_fut26, overlap_fut85)
+```
+
+
+```{r}
+a <- overlap_current |> 
+    group_by(Species) |> 
+    summarise(hosts = n_distinct(Host),
+    # mean_overlap = mean(Overlap_host, na.rm = TRUE),
+    mistmatched = sum(Overlap_host == 0))
+
+a |> arrange(desc(mistmatched)) |> 
+    filter(mistmatched > 0) |> 
+    select(Species, hosts, mistmatched)
+
+ggplot(a, aes(x = mistmatched)) +
+    geom_histogram()
+```
+
+
+```{r}
+int_changes <- overlap_all |> 
+    select(Species, Host, scenario, Overlap_host) |>
+    pivot_wider(names_from = scenario, values_from = Overlap_host) |>
+    mutate(change_26 = future26 - current,
+           change_85 = future85 - current) |> 
+    mutate(change_type_26 = case_when(change_26 > 0 ~ "increase",
+                                 change_26 < 0 ~ "decrease",
+                                 change_26 == 0 ~ "no_change"),
+           change_type_85 = case_when(change_85 > 0 ~ "increase",
+                                 change_85 < 0 ~ "decrease",
+                                 change_85 == 0 ~ "no_change")) 
+
+int_changes |> 
+    ggplot(aes(x = change_26)) +
+    geom_histogram()
+
+int_changes |> 
+    ggplot(aes(x = change_85)) +
+    geom_histogram()
+           
+p1 <- int_changes |>
+    # only keep interactions that are present in the current scenario
+    filter_out(current == 0 & future26 == 0 & future85 == 0) |>
+    group_by(change_type_26) |>
+    summarise(n = n_distinct(Species)) |> 
+    ggplot(aes(x = 1, y = n, fill = change_type_26)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Change in overlap (current to future 26)",
+            y = "Number of interactions") +
+    theme_minimal()
+
+p2 <- int_changes |>
+    filter_out(current == 0 & future26 == 0 & future85 == 0) |>
+    group_by(change_type_85) |>
+    summarise(n = n_distinct(Species)) |> 
+    ggplot(aes(x = 1, y = n, fill = change_type_85)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Change in overlap (current to future 85)",
+            y = "Number of interactions") +
+    theme_minimal() 
+
+library(patchwork)
+p1 + p2 + plot_layout(guides = "collect") + plot_annotation(title = "Changes in butterfly-host interactions under future scenarios")
+```
